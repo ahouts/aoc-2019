@@ -34,3 +34,6 @@ cabal.project.local~
 **/*.rs.bk
 
 **/.vscode
+
+
+**/.idea
