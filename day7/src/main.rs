@@ -76,17 +76,10 @@ struct IntcodeInterpreter {
     pc: i32,
     in_chan: Receiver<i32>,
     out_chan: Sender<i32>,
-    exit_chan: Option<Sender<i32>>,
-    last_sent: i32,
 }
 
 impl IntcodeInterpreter {
-    fn new(
-        text: &str,
-        in_chan: Receiver<i32>,
-        out_chan: Sender<i32>,
-        exit_chan: Option<Sender<i32>>,
-    ) -> Self {
+    fn new(text: &str, in_chan: Receiver<i32>, out_chan: Sender<i32>) -> Self {
         IntcodeInterpreter {
             code: text
                 .split(",")
@@ -97,8 +90,6 @@ impl IntcodeInterpreter {
             pc: 0,
             in_chan,
             out_chan,
-            exit_chan,
-            last_sent: std::i32::MIN,
         }
     }
 
@@ -130,7 +121,6 @@ impl IntcodeInterpreter {
                 self.pc += 2;
             }
             Write => {
-                self.last_sent = self[f1];
                 self.out_chan.send(self[f1]);
                 self.pc += 2;
             }
@@ -157,9 +147,6 @@ impl IntcodeInterpreter {
                 self.pc += 4;
             }
             Exit => {
-                if let Some(exit_chan) = &self.exit_chan {
-                    exit_chan.send(self.last_sent);
-                }
                 return true;
             }
         }
@@ -193,94 +180,83 @@ impl IndexMut<FetchInstruction> for IntcodeInterpreter {
     }
 }
 
-// part 1
-//fn main() {
-//    let mut buff = String::new();
-//    stdin().read_line(&mut buff);
-//
-//    let mut amps = vec![0, 1, 2, 3, 4];
-//
-//    let mut max_val = 0;
-//    let mut max_perm = vec![];
-//
-//    for perm in Heap::new(&mut amps) {
-//        let buff1 = buff.clone();
-//        let buff2 = buff.clone();
-//        let buff3 = buff.clone();
-//        let buff4 = buff.clone();
-//        let buff5 = buff.clone();
-//        let (input, i0) = channel();
-//        input.send(perm[0]);
-//        let (o1, i1) = channel();
-//        o1.send(perm[1]);
-//        let (o2, i2) = channel();
-//        o2.send(perm[2]);
-//        let (o3, i3) = channel();
-//        o3.send(perm[3]);
-//        let (o4, i4) = channel();
-//        o4.send(perm[4]);
-//        let (o5, output) = channel();
-//        std::thread::spawn(move || IntcodeInterpreter::new(buff1.as_str(), i0, o1).run());
-//        std::thread::spawn(move || IntcodeInterpreter::new(buff2.as_str(), i1, o2).run());
-//        std::thread::spawn(move || IntcodeInterpreter::new(buff3.as_str(), i2, o3).run());
-//        std::thread::spawn(move || IntcodeInterpreter::new(buff4.as_str(), i3, o4).run());
-//        std::thread::spawn(move || IntcodeInterpreter::new(buff5.as_str(), i4, o5).run());
-//
-//        input.send(0);
-//        let out = output.recv().unwrap();
-//
-//        if out > max_val {
-//            max_val = out;
-//            max_perm = perm.clone();
-//        }
-//    }
-//
-//    println!("{:?} : {}", max_perm, max_val);
-//}
+fn spawn_interpreters<'a>(
+    s: &rayon::Scope<'a>,
+    code: &'a str,
+    phases: &'a [i32],
+) -> (Sender<i32>, Receiver<i32>) {
+    let (input, i0) = channel();
+    input.send(phases[0]);
+    let (o1, i1) = channel();
+    o1.send(phases[1]);
+    let (o2, i2) = channel();
+    o2.send(phases[2]);
+    let (o3, i3) = channel();
+    o3.send(phases[3]);
+    let (o4, i4) = channel();
+    o4.send(phases[4]);
+    let (o5, output) = channel();
+
+    s.spawn(move |_| IntcodeInterpreter::new(code, i0, o1).run());
+    s.spawn(move |_| IntcodeInterpreter::new(code, i1, o2).run());
+    s.spawn(move |_| IntcodeInterpreter::new(code, i2, o3).run());
+    s.spawn(move |_| IntcodeInterpreter::new(code, i3, o4).run());
+    s.spawn(move |_| IntcodeInterpreter::new(code, i4, o5).run());
+
+    (input, output)
+}
+
+fn part1(code: &str) {
+    let mut amps = vec![0, 1, 2, 3, 4];
+
+    let mut max_val = 0;
+
+    for perm in Heap::new(&mut amps) {
+        rayon::scope(|s| {
+            let (input, output) = spawn_interpreters(s, code, perm.as_slice());
+
+            input.send(0);
+            let out = output.recv().unwrap();
+
+            if out > max_val {
+                max_val = out;
+            }
+        });
+    }
+
+    println!("part 1: {}", max_val);
+}
+
+fn part2(code: &str) {
+    let mut amps = vec![5, 6, 7, 8, 9];
+
+    let mut max_val = 0;
+
+    for perm in Heap::new(&mut amps) {
+        rayon::scope(|s| {
+            let (input, output) = spawn_interpreters(s, code, perm.as_slice());
+
+            input.send(0);
+
+            let mut out = std::i32::MIN;
+            while let Ok(res) = output.recv() {
+                out = res;
+                input.send(res);
+            }
+
+            if out > max_val {
+                max_val = out;
+            }
+        });
+    }
+
+    println!("part 2: {}", max_val);
+}
+
 fn main() {
     let mut buff = String::new();
     stdin().read_line(&mut buff);
 
-    let mut amps = vec![5, 6, 7, 8, 9];
-
-    let mut max_val = 0;
-    let mut max_perm = vec![];
-
-    for perm in Heap::new(&mut amps) {
-        let buff1 = buff.clone();
-        let buff2 = buff.clone();
-        let buff3 = buff.clone();
-        let buff4 = buff.clone();
-        let buff5 = buff.clone();
-        let (input, i0) = channel();
-        input.send(perm[0]);
-        let input2 = input.clone();
-        let (o1, i1) = channel();
-        o1.send(perm[1]);
-        let (o2, i2) = channel();
-        o2.send(perm[2]);
-        let (o3, i3) = channel();
-        o3.send(perm[3]);
-        let (o4, i4) = channel();
-        o4.send(perm[4]);
-        let (o5, output) = channel();
-
-        std::thread::spawn(move || IntcodeInterpreter::new(buff1.as_str(), i0, o1, None).run());
-        std::thread::spawn(move || IntcodeInterpreter::new(buff2.as_str(), i1, o2, None).run());
-        std::thread::spawn(move || IntcodeInterpreter::new(buff3.as_str(), i2, o3, None).run());
-        std::thread::spawn(move || IntcodeInterpreter::new(buff4.as_str(), i3, o4, None).run());
-        std::thread::spawn(move || {
-            IntcodeInterpreter::new(buff5.as_str(), i4, input, Some(o5)).run()
-        });
-
-        input2.send(0);
-
-        let out = output.recv().unwrap();
-        if out > max_val {
-            max_val = out;
-            max_perm = perm.clone();
-        }
-    }
-
-    println!("{:?} : {}", max_perm, max_val);
+    part1(&buff);
+    part2(&buff);
 }
