@@ -1,0 +1,10 @@
+[package]
+name = "day12"
+version = "0.1.0"
+authors = ["Andrew Houts <ahouts4@gmail.com>"]
+edition = "2018"
+
+[profile.release]
+lto = true
+
+[dependencies]
